@@ -3,7 +3,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Literal
-import requests
+import aiohttp
 from loguru import logger
 import typer
 import pathlib
@@ -19,50 +19,61 @@ YEAR = 2024
 INPUTS = pathlib.Path.cwd() / "puzzle-inputs"
 
 
-def request_puzzle(year: int, day: int) -> str:
-    url = f"https://adventofcode.com/{year}/day/{day}/input"
+def file_cache(path: pathlib.Path, cache={}) -> dict[str, pathlib.Path]:
+    if not path.exists():
+        path.mkdir()
+    if not cache:
+        cache = {f.name: f for f in path.iterdir()}
+    return cache
+
+
+async def request_puzzle(day: int, part: Literal[1, 2]) -> str:
+    url = f"https://adventofcode.com/{YEAR}/day/{day}/input"
     jar = {"session": session_token}
-    response = requests.get(url, cookies=jar)
+    async with aiohttp.ClientSession() as sesh:
+        async with sesh.get(url, cookies=jar) as reponse:
+            if response.status_code == 200:
+                return response.text
+            else:
+                raise RuntimeError(
+                    f"Request failed: {response.status_code}, {response.text}"
+                )
 
-    if response.status_code == 200:
-        return response.text
+
+async def _get_example(day: int, part: Literal[1, 2]) -> str:
+    file_name = f"day-{day}-part-{part}-example"
+    cache = file_cache(INPUTS)
+
+    if file_name in cache:
+        example = cache[file_name].read_text()
     else:
-        raise RuntimeError(f"Request failed: {response.status_code}, {response.text}")
+        example = await get_example(day, part)
+        f = INPUTS / file_name
+        f.write_text(example)
+
+    return example
 
 
-def read_till_quit():
-    lines = []
-    print("enter lines or type 'quit' to exit")
-    while (line := input()) != "quit":
-        lines.append(line)
-    return "\n".join(lines)
+async def _get_day(day: int, part: Literal[1, 2]) -> str:
+    cache = file_cache(INPUTS)
+    file_name = f"day-{day}"
+    if file_name in cache:
+        puzzle = cache[file_name].read_text()
+    else:
+        puzzle = await request_puzzle(day, part)
+        (INPUTS / file_name).write_text(puzzle)
+    return puzzle
 
 
-def get_puzzle(
+async def get_puzzle(
     day: int,
     part: Literal[1, 2],
     example: bool,
-    year: int = YEAR,
 ):
-    if not INPUTS.exists():
-        INPUTS.mkdir()
     if example:
-        parts = {i: INPUTS / f"day-{day}-part-{i}-example" for i in range(2)}
-        if parts[part].exists()
-            return parts[part].read_text()
-
-        examples = asyncio.ensure_future(get_example(day)).result()
-        for ex, f in zip(examples, parts.values()):
-            f.write_text(ex)
-
-        return examples[i]
-
+        puzzle = await _get_example(day, part)
     else:
-        file = INPUTS / f"day-{day}"
-        if file.exists():
-            return file.read_text()
-        puzzle = request_puzzle(year, day)
-        _ = file.write_text(puzzle)
+        puzzle = await _get_day(day, part)
 
     return puzzle
 
@@ -100,9 +111,6 @@ solve = {
     for d in range(1, 2)
 }
 
-tpe = ThreadPoolExecutor(max_workers=8)
-
-async def _main_loop():
 
 @app.command()
 def main(
@@ -110,8 +118,11 @@ def main(
     part: int,
     example: Annotated[bool, typer.Option("--example", "-e")] = False,
 ):
-    uvloop.run(_main_loop())
-    puzzle = get_puzzle(day, part, example)
+    uvloop.run(_main(day, part, example))
+
+
+async def _main(day: int, part: int, example: bool):
+    puzzle = await get_puzzle(day, part, example)
     ans = solve[day][part](puzzle)
     print(f"the answer is: {ans}")
 

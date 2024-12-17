@@ -29,4 +29,10 @@ def day_one_part_two(puzzle: str):
 
     return sum(vleft)
 
+
 def day_two_part_one(puzzle: str):
+    pass
+
+
+def day_two_part_two(puzzle: str):
+    pass

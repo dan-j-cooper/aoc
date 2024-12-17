@@ -1,8 +1,9 @@
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 import contextlib
+from asyncio.base_events import timeouts
+import pytest
 import signal
 import threading
-from dspy import asyncify
 import pytest
 import time
 import queue
@@ -13,54 +14,76 @@ import asyncio
 import uvloop
 
 
-def check_for_err(future: Future | asyncio.Task):
-    if future.exception():
-        raise future.exception()
-
-
 class LoopManager:
-    def __init__(self):
-        self.loop = uvloop.new_event_loop()
+    def __init__(self, loop=None):
+        if loop:
+            self.loop = loop
+        else:
+            self.loop = asyncio.get_event_loop()
         self.tasks: set[asyncio.Task] = set()
         self._shutdown = asyncio.Event()
 
     def submit(self, coroutine: Coroutine) -> asyncio.Task:
         if self._shutdown.is_set():
             raise ValueError("Can't submit jobs to a shutdown loop.")
-        task = self.loop.create_task(self.wrapper(coroutine))
-        task.add_done_callback(check_for_err)
+        task = self.loop.create_task(coroutine)
+        task.add_done_callback(self._on_completion)
         self.tasks.add(task)
         return task
 
-    async def wrapper(self, coroutine: Coroutine) -> Any:
-        try:
-            return await coroutine
-        finally:
-            self.tasks.remove(coroutine)
+    def _on_completion(self, task):
+        if task.exception():
+            raise task.exception()
+        self.tasks.remove(task)
 
-    async def shutdown(self, timeout: int | None = None):
+    def shutdown(self, timeout: int | None = None):
         self._shutdown.set()
         for task in self.tasks:
             task.cancel()
 
-        await asyncio.wait_for(
-            asyncio.gather(*self.tasks, return_exceptions=True), timeout=timeout
-        )
+        wait_task = asyncio.gather(*self.tasks, return_exceptions=True)
+        try:
+            self.loop.run_until_complete(wait_task)
+        except Exception:
+            pass
+
         self.loop.stop()
+        timeouts = 3
+        err = None
+        while timeouts:
+            try:
+                self.loop.close()
+            except RuntimeError as e:
+                timeouts -= 1
+                time.sleep(0.1)
+        if not timeouts:
+            raise RuntimeError("Failed to close loop")
 
     def add_signal_handlers(self):
         for sig in (signal.SIGTERM, signal.SIGINT):
-            self.loop.add_signal_handler(
-                sig, lambda s: self.loop.run_until_complete(self.shutdown())
-            )
+            self.loop.add_signal_handler(sig, self.shutdown)
 
-    @contextlib.asynccontextmanager
-    async def run(self):
-        self.add_signal_handlers()
-        try:
-            yield self
-        finally:
-            await self.shutdown()
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.shutdown()
+        return False
+
+
+@pytest.fixture
+def event_loop_policy():
+    return uvloop.EventLoopPolicy()
+
+
+@pytest.mark.asyncio
+async def test_loop_man():
+    async def coro():
+        return 1
+
+    with LoopManager() as loop:
+        result = await loop.submit(coro())
+        assert result == 1
 
 
 class PoolManager:
@@ -79,14 +102,21 @@ class PoolManager:
         future.add_done_callback(self.check_for_err)
         self.queue.append(future)
 
+    def check_for_err(self, task):
+        if task.exception():
+            raise task.exception()
+
     def __iter__(self):
         return self
 
     def __next__(self):
-        return self.collect()
-
-    def collect(self) -> Any:
-        return self.queue.pop()
+        if self.queue:
+            vnext = self.queue.pop()
+            if vnext.exception():
+                raise vnext.exception()
+            return vnext.result()
+        else:
+            raise StopIteration
 
     def shutdown(self):
         for v in self.queue:

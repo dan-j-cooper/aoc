@@ -5,8 +5,8 @@ import uvloop
 from ollama import chat
 from ollama import ChatResponse
 import functools
+import orjson
 from typing import Callable, Any, NamedTuple, TypedDict, Sequence, Literal
-import dspy
 import bs4
 import requests
 
@@ -60,51 +60,52 @@ def options() -> dict[str, Any]:
     }
 
 
+def system_prompt() -> Message:
+    return Message(
+        role="system",
+        content="You are a helpful AI that retrieves information from websites and returns answers to queries in json.",
+    )
+
+
 def prompt() -> Message:
-    prompt = """Find the examples in this page and return them in the following format: 
-    { examples: [str, ...] }. 
-    For example, if there was only one example like this: 
+    prompt = """Find the Nth example in this page and return it in the following format: 
+    { examples: str }. 
+    For example, if there was only one example in the document and the query was find part 1:
     For Example: 
         1,2,3, 
     the response would be: 
     { example: ["1,2,3"] }
-    if on the other hand, there were two examples:
+    if on the other hand, there were two examples in the html:
     For example:
         1,9,10
     ...
     for example:
         10, 10
         100, 1000
+    and the query was: find example 1, response would be:
+    { example: "1,9,10" },
+    if, on the other hand, the query had been: find example 2, 
     the response would be:
-    { example: ["1,9,10", "10,10\n100, 1000"]}
+    { example: "10,10\n100, 1000"}
+    It is very important that you accurately transcribe the exact example requested only.
+    If no such example exists, or you fail to find the requested example, or you can't determine what should go into the example, you must put the
+    word: Error in the response, ie:
+    { example: "Error" }
     """
 
     return Message(role="user", content=prompt)
 
 
-def system_prompt() -> Message:
-    return Message(
-        role="system",
-        content="You are a helpful AI that retrieves information from websites and returns answers as json.",
-    )
+def query(html: str, part: Literal[1, 2]) -> Message:
+    return Message(role="user", content=f"""find example{part}\n{html}""")
 
 
-def query(html: str) -> Message:
-    return Message(
-        role="user",
-        content="""Here is the web-page, please find the example and return it as json. 
-        It is very important that you get the answer exactly right.\n {0}""".format(
-            html
-        ),
-    )
-
-
-async def get_example(day: int) -> Sequence[str]:
+async def get_example(day: int, part: int) -> str:
     site = f"https://adventofcode.com/2024/day/{day}"
     html = await read_page(site)
-    messages = [system_prompt(), prompt(), query(html)]
+    messages = [system_prompt(), prompt(), query(html, part)]
     resp = await get_response(messages, options())
-    return resp.message.content["example"]
+    return orjson.loads(resp.message.content)["example"]
 
 
 async def main():
