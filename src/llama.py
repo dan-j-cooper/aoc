@@ -6,7 +6,7 @@ from ollama import chat
 from ollama import ChatResponse
 import functools
 import orjson
-from typing import Callable, Any, NamedTuple, TypedDict, Sequence, Literal
+from typing import Callable, Any, TypedDict, Sequence, Literal
 import bs4
 import requests
 

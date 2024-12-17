@@ -108,7 +108,7 @@ solve = {
         1: globals()[f"day_{_numbers[d]}_part_one"],
         2: globals()[f"day_{_numbers[d]}_part_two"],
     }
-    for d in range(1, 2)
+    for d in range(1, 3)
 }
 
 
