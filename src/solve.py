@@ -7,6 +7,7 @@ import aiohttp
 from loguru import logger
 import typer
 import pathlib
+import httpx
 
 import uvloop
 from lib import *
@@ -30,14 +31,14 @@ def file_cache(path: pathlib.Path, cache={}) -> dict[str, pathlib.Path]:
 async def request_puzzle(day: int, part: Literal[1, 2]) -> str:
     url = f"https://adventofcode.com/{YEAR}/day/{day}/input"
     jar = {"session": session_token}
-    async with aiohttp.ClientSession() as sesh:
-        async with sesh.get(url, cookies=jar) as reponse:
-            if response.status_code == 200:
-                return response.text
-            else:
-                raise RuntimeError(
-                    f"Request failed: {response.status_code}, {response.text}"
-                )
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, cookies=jar)
+        if response.status_code == 200:
+            return response.text
+        else:
+            raise RuntimeError(
+                f"Request failed: {response.status_code}, {response.text}"
+            )
 
 
 async def _get_example(day: int, part: Literal[1, 2]) -> str:

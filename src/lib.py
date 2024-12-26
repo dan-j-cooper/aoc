@@ -32,21 +32,42 @@ def day_one_part_two(puzzle: str):
     return sum(vleft)
 
 
+def digitize(s: str) -> list[npt.NDArray]:
+    return [np.array([int(x) for x in l.split()]) for l in s.split("\n")]
+
+
 def day_two_part_one(puzzle: str):
-    mat = np.loadtxt(StringIO(puzzle))
-    difference = np.abs(np.diff(mat, axis=-1))
-    safe_delta = np.all(difference >= 1, axis=-1) & np.all(difference <= 3, axis=-1)
-    sorted_mat = np.sort(mat, axis=-1)
-    reverse_sort = sorted_mat[..., ::-1]
-    ordered = np.all(mat == sorted_mat, axis=-1) | np.all(mat == reverse_sort, axis=-1)
-    total = np.logical_and(safe_delta, ordered)
-
-    return np.sum(total)
-
-
-def _increasing(vec: npt.NDArray):
-    return np.apply_over_axes()
+    lines = digitize(puzzle)
+    cnt = 0
+    for line in lines:
+        if line.size == 0:
+            continue
+        d = np.diff(line)
+        a = np.abs(d)
+        strict = np.all(d > 0) or np.all(d < 0)
+        atleast = np.all(a > 0)
+        atmost = np.all(a <= 3)
+        if strict and (atleast and atmost):
+            cnt += 1
+    return cnt
 
 
 def day_two_part_two(puzzle: str):
-    pass
+    lines = digitize(puzzle)
+    cnt = 0
+    for line in lines:
+        if line.size == 0:
+            continue
+        d = np.diff(line)
+        a = np.abs(d)
+        decr = np.where(d < 0)[0]
+        incr = np.where(d > 0)[0]
+        # check if there exists a number that is common to all of the cases that are violated, remove it
+        # this won't check against the new list though, since we could have a transistion from 2-7-9 which
+        # would still fail.
+        if incr.size == line.size or decr.size == line.size:
+            atleast = np.where(a == 0)[0]
+            atmost = np.where(a > 3)[0]
+        print(incr, decr, atleast, atmost)
+        cnt += 1
+    return cnt
