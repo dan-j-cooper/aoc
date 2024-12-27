@@ -1,6 +1,7 @@
 from collections import Counter
 from io import StringIO
 import numpy as np
+import numba
 import numpy.typing as npt
 
 
@@ -50,6 +51,29 @@ def day_two_part_one(puzzle: str):
         if strict and (atleast and atmost):
             cnt += 1
     return cnt
+
+
+@numba.jit(nopython=True)
+def increasing_with_dropout(a: npt.NDArray):
+    assert len(a) > 2
+    dropout = 0
+    prev = 0
+    sign = np.sign(prev)
+    for i in range(1, len(a)):
+        vnext = a[i] - a[prev]
+        anext = abs(vnext)
+        vsign = np.sign(anext)
+        if anext == 0 or anext >= 3:
+            dropout += 1
+        if vsign != sign:
+            # violated total order
+            # drop the next value by not updating prev, this won't work in some edge cases where the thing we need to drop comes first.
+            dropout += 1
+        else:
+            prev = i
+            # need to update a[i - 1] in next iteration
+            # instead of doing a[i - 1], manually update prev pointer
+        sign = vsign
 
 
 def day_two_part_two(puzzle: str):
